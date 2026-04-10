@@ -1,0 +1,34 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+venv/
+env/
+.env
+.venv
+env.bak/
+venv.bak/
+
+# Project-specific caches and configuration files
+config.json
+rules.json
+comicvine_cache.json
+.comic_sorter_cache.json
+*_log.txt
+DRY_RUN_*
+*Sort_log.txt
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/

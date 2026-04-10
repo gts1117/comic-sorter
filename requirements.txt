@@ -1,0 +1,3 @@
+rarfile
+send2trash
+customtkinter

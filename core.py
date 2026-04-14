@@ -7,7 +7,6 @@ import threading
 from metadata import extract_metadata
 from injector import inject_metadata_into_archive
 import scanner
-from utils import handle_failure
 
 try:
     from send2trash import send2trash
@@ -154,21 +153,37 @@ class ComicSorterEngine:
                             publisher, ip, storyline, issue, volume = extract_metadata(file_path, None, custom_regexes)
                         except Exception as offline_e:
                             ctx = f"Offline data extraction for '{filename}'"
-                            if 'on_failure' in self.callbacks and not self.callbacks['on_failure'](str(offline_e), ctx):
+                            should_continue = False
+                            if 'on_failure' in self.callbacks:
+                                should_continue = self.callbacks['on_failure'](str(offline_e), ctx)
+                            else:
+                                safe_log(f"\n[!] Offline metadata extraction failed: {offline_e}")
+                                should_continue = True
+                                
+                            if not should_continue:
                                 safe_log(f"\n[!] Aborting execution due to offline metadata crash: {offline_e}")
                                 self.aborted = True
                                 break
                             else:
-                                handle_failure(str(offline_e), context=ctx)
                                 publisher, ip, storyline, issue, volume = "Unknown Publisher", "Unknown IP", "Unknown Storyline", "", ""
                     else:
                         safe_log("\nAborting sort.")
                         self.aborted = True
                         break
                 else:
-                    safe_log(f"\n[!] Unexpected Error during extraction: {err}")
-                    self.aborted = True
-                    break
+                    ctx = f"Metadata extraction for '{filename}'"
+                    should_continue = False
+                    if 'on_failure' in self.callbacks:
+                        should_continue = self.callbacks['on_failure'](str(err), ctx)
+                    else:
+                        safe_log(f"\n[!] Unexpected Error during extraction: {err}")
+                        should_continue = True
+                    
+                    if not should_continue:
+                        self.aborted = True
+                        break
+                    else:
+                        publisher, ip, storyline, issue, volume = "Unknown Publisher", "Unknown IP", "Unknown Storyline", "", ""
                     
             if (publisher == "Unknown Publisher" or ip == "Unknown IP") and not api_key:
                 safe_log(f"  [!] Missing metadata for {filename}")
@@ -239,16 +254,17 @@ class ComicSorterEngine:
                         safe_log("  [>] Copied to library.")
                 
                 if not is_cached or needs_move:
+                    source_size = os.path.getsize(file_path)
                     if not dry_run:
                         target_file = inject_metadata_into_archive(target_file, publisher, ip, storyline, issue, volume)
                         new_size = os.path.getsize(target_file)
                     else:
-                        new_size = os.path.getsize(file_path) 
+                        new_size = source_size
                         
                     # Cache both the resulting injected size, AND the original source size!
                     # This allows the Smart-Merge mode to correctly identify matching source bytes on future runs.
                     new_cache_key = f"{filename}_{new_size}"
-                    source_cache_key = f"{filename}_{os.path.getsize(file_path)}"
+                    source_cache_key = f"{filename}_{source_size}"
                     
                     library_cache[new_cache_key] = {"publisher": publisher, "ip": ip, "storyline": storyline, "issue": issue, "volume": volume}
                     library_cache[source_cache_key] = library_cache[new_cache_key]
@@ -264,7 +280,7 @@ class ComicSorterEngine:
                 if 'on_failure' in self.callbacks:
                     should_continue = self.callbacks['on_failure'](str(e), context_msg)
                 else:
-                    handle_failure(str(e), context=context_msg)
+                    safe_log(f"\n[!] Disk operation failed: {e}")
                     should_continue = True 
                     
                 if not should_continue:

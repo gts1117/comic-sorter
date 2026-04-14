@@ -103,7 +103,10 @@ def extract_metadata(file_path, api_key=None, custom_regexes=None):
                         tree = ET.parse(f)
                         parse_xml_node(tree.getroot())
     except Exception as e:
-        print(f"  [!] Ignored unreadable archive '{os.path.basename(file_path)}' metadata. Reason: {e}")
+        if "File is not a zip file" in str(e) or "BadZipFile" in str(e):
+            print(f"  [!] Misnamed archive extension detected for '{os.path.basename(file_path)}'. Routing to inferencer...")
+        else:
+            print(f"  [!] Ignored unreadable archive '{os.path.basename(file_path)}' metadata. Reason: {e}")
 
     # Fallback logic
     fb_pub, fb_ip, fb_story, fb_issue, fb_vol = guess_metadata_from_filename(file_path, custom_regexes)

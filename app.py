@@ -2,8 +2,50 @@ import os
 import queue
 import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog
 import customtkinter as ctk
+
+class CTkMessage(ctk.CTkToplevel):
+    def __init__(self, title, message, yes_no=False):
+        super().__init__()
+        self.title(title)
+        self.geometry("450x250")
+        self.result = False
+        
+        self.lbl = ctk.CTkLabel(self, text=message, wraplength=400)
+        self.lbl.pack(pady=(20, 10), padx=20, expand=True)
+        
+        self.btn_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.btn_frame.pack(pady=20)
+        
+        if yes_no:
+            self.yes_btn = ctk.CTkButton(self.btn_frame, text="Yes", width=100, command=self.on_yes)
+            self.yes_btn.pack(side="left", padx=10)
+            self.no_btn = ctk.CTkButton(self.btn_frame, text="No", width=100, command=self.on_no, fg_color="#C62828", hover_color="#B71C1C")
+            self.no_btn.pack(side="left", padx=10)
+        else:
+            self.ok_btn = ctk.CTkButton(self.btn_frame, text="OK", width=100, command=self.on_yes)
+            self.ok_btn.pack()
+            
+        self.transient(self.master)
+        self.grab_set()
+        
+    def on_yes(self):
+        self.result = True
+        self.destroy()
+        
+    def on_no(self):
+        self.result = False
+        self.destroy()
+
+def safe_showinfo(title, msg):
+    d = CTkMessage(title, msg, yes_no=False)
+    d.wait_window()
+
+def safe_askyesno(title, msg):
+    d = CTkMessage(title, msg, yes_no=True)
+    d.wait_window()
+    return d.result
 
 from core import ComicSorterEngine, load_config, save_config
 
@@ -32,11 +74,11 @@ class App(ctk.CTk):
         # Mode Selection
         self.mode_var = tk.IntVar(value=1)
         self.radio_new = ctk.CTkRadioButton(self.controls_frame, text="1. Sort New Library", variable=self.mode_var, value=1, command=self.update_ui)
-        self.radio_new.grid(row=0, column=0, padx=10, pady=15)
+        self.radio_new.grid(row=0, column=0, padx=10, pady=15, sticky="ew")
         self.radio_resort = ctk.CTkRadioButton(self.controls_frame, text="2. Resort Existing", variable=self.mode_var, value=2, command=self.update_ui)
-        self.radio_resort.grid(row=0, column=1, padx=10, pady=15)
+        self.radio_resort.grid(row=0, column=1, padx=10, pady=15, sticky="ew")
         self.radio_merge = ctk.CTkRadioButton(self.controls_frame, text="3. Smart-Merge", variable=self.mode_var, value=3, command=self.update_ui)
-        self.radio_merge.grid(row=0, column=2, padx=10, pady=15)
+        self.radio_merge.grid(row=0, column=2, padx=10, pady=15, sticky="ew")
         
         # Paths Frame
         self.paths_frame = ctk.CTkFrame(self.controls_frame)
@@ -180,7 +222,7 @@ class App(ctk.CTk):
         source_dir = self.source_entry.get() if mode != 2 else dest_dir
         
         if not dest_dir or (mode != 2 and (not source_dir or source_dir == "*Using Dest Dir As Source*")):
-            messagebox.showerror("Error", "Please select all required directories.")
+            safe_showinfo("Error", "Please select all required directories.")
             return
             
         self.is_running = True
@@ -202,9 +244,9 @@ class App(ctk.CTk):
         callbacks = {
             'log': lambda msg: self.log_queue.put(msg),
             'on_missing_api_key': lambda: self.thread_safe_ask(self._ui_ask_api),
-            'on_rate_limit': lambda: self.thread_safe_ask(lambda: messagebox.askyesno("Rate Limit", "ComicVine API rate limit exceeded.\n\nContinue strictly offline?")),
-            'on_failure': lambda error, context: self.thread_safe_ask(lambda: messagebox.askyesno("Error", f"A non-fatal error occurred:\n{context}\n\n{error}\n\nContinue skipping this file?")),
-            'on_trash_prompt': lambda n: True if n == -1 else self.thread_safe_ask(lambda: messagebox.askyesno("Cleanup", f"Do you want to move the {n} original unsorted files to the Trash?")),
+            'on_rate_limit': lambda: self.thread_safe_ask(lambda: safe_askyesno("Rate Limit", "ComicVine API rate limit exceeded.\n\nContinue strictly offline?")),
+            'on_failure': lambda error, context: self.thread_safe_ask(lambda: safe_askyesno("Error", f"A non-fatal error occurred:\n{context}\n\n{error}\n\nContinue skipping this file?")),
+            'on_trash_prompt': lambda n: True if n == -1 else self.thread_safe_ask(lambda: safe_askyesno("Cleanup", f"Do you want to move the {n} original unsorted files to the Trash?")),
             'on_progress': lambda c, t: self.after(0, lambda: self.progress_bar.set(c / t if t > 0 else 0)),
             'on_finish': self.on_finish
         }
@@ -230,7 +272,7 @@ class App(ctk.CTk):
             self.start_btn.configure(state="normal")
             self.cancel_btn.configure(state="disabled")
             msg = "Sorting process completed or cancelled!" if (self.engine and self.engine.aborted) else "Sorting process completed successfully!"
-            messagebox.showinfo("Done", msg)
+            safe_showinfo("Done", msg)
             self.write_log(f"[{'='*40}]\n")
             self.progress_bar.grid_remove()
             self.log_box.grid_remove()

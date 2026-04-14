@@ -86,16 +86,17 @@ def convert_cbr_to_cbz_and_inject(target_file, publisher, ip, storyline, issue="
     try:
         with tempfile.TemporaryDirectory() as extract_dir:
             dest_path = os.path.join(extract_dir, "")  
+            unar_paths = ['unar', '/opt/homebrew/bin/unar', '/usr/local/bin/unar']
+            unar_bin = next((p for p in unar_paths if shutil.which(p) or os.path.exists(p)), None)
+            if not unar_bin:
+                raise RuntimeError("Missing the 'unar' binary. Run: brew install unar")
+            
             try:
-                res = subprocess.run(['unar', '-f', '-D', '-o', extract_dir, target_file], capture_output=True, text=True)
+                res = subprocess.run([unar_bin, '-f', '-D', '-o', extract_dir, target_file], capture_output=True, text=True)
                 if res.returncode != 0:
-                    from utils import handle_failure
-                    handle_failure(f"Native unar failed with code {res.returncode}", context=f"Extracting {os.path.basename(target_file)}")
-                    return target_file
+                    raise RuntimeError(f"Native unar failed with code {res.returncode}")
             except FileNotFoundError:
-                from utils import handle_failure
-                handle_failure("Missing the 'unar' binary. Run: brew install unar", context="CBR file format conversion")
-                return target_file
+                raise RuntimeError("Missing the 'unar' binary. Run: brew install unar")
                 
             xml_path = None
             for root, dirs, files in os.walk(extract_dir):
@@ -133,13 +134,17 @@ def convert_cbr_to_cbz_and_inject(target_file, publisher, ip, storyline, issue="
         print(f"  [->] Converted successfully to {os.path.basename(new_target_file)}")
         return new_target_file
     except Exception as e:
-        from utils import handle_failure
-        handle_failure(str(e), context=f"Converting and Injecting {os.path.basename(target_file)}")
-        return target_file
+        raise RuntimeError(str(e))
 
 def inject_metadata_into_archive(target_file, publisher, ip, storyline, issue="", volume=""):
     if target_file.lower().endswith('.cbz'):
-        return inject_cbz(target_file, publisher, ip, storyline, issue, volume)
+        try:
+            return inject_cbz(target_file, publisher, ip, storyline, issue, volume)
+        except RuntimeError as e:
+            if "File is not a zip file" in str(e) or "BadZipFile" in str(e):
+                print(f"  [cbr] Misnamed archive detected. Salvaging as proprietary file...")
+                return convert_cbr_to_cbz_and_inject(target_file, publisher, ip, storyline, issue, volume)
+            raise
     elif target_file.lower().endswith('.cbr'):
         print(f"  [cbr] Converting proprietary file to standard .cbz...")
         return convert_cbr_to_cbz_and_inject(target_file, publisher, ip, storyline, issue, volume)

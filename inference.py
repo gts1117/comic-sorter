@@ -60,7 +60,8 @@ DEFAULT_RULES = {
     "invincible": "Image",
     "saga": "Image",
     "the walking dead": "Image",
-    "we're taking everyone down with us": "Image"
+    "we're taking everyone down with us": "Image",
+    "machine girl": "Alien Books"
   },
   "ALIAS_IPS": {
     "bprd": "Hellboy",
@@ -83,16 +84,14 @@ def load_rules():
             with open(RULES_FILE, 'w') as f:
                 json.dump(DEFAULT_RULES, f, indent=4)
         except Exception as e:
-            from utils import handle_failure
-            handle_failure(str(e), context="Generating default rules.json")
+            # Failing to write default rules is okay, just use defaults
+            pass
         return DEFAULT_RULES
 
     try:
         with open(RULES_FILE, 'r') as f:
             return json.load(f)
     except Exception as e:
-        from utils import handle_failure
-        handle_failure(str(e), context="Loading rules.json")
         return DEFAULT_RULES
 
 rules_db = load_rules()
@@ -176,11 +175,9 @@ def query_comicvine(query, api_key):
         except urllib.error.HTTPError as e:
             if e.code in [420, 429]:
                 raise RuntimeError("API_RATE_LIMIT")
-            from utils import handle_failure
-            handle_failure(f"HTTP {e.code} - {e.reason}", context=f"ComicVine Online Search for '{query}'")
+            raise RuntimeError(f"HTTP {e.code} - {e.reason}")
         except Exception as e:
-            from utils import handle_failure
-            handle_failure(str(e), context=f"ComicVine Online Search for '{query}'")
+            raise RuntimeError(str(e))
         return None, None
 
 

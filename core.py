@@ -33,12 +33,24 @@ def save_config(conf):
     except (OSError, ValueError) as e:
         print(f"[!] Warning: Failed to save config: {e}")
 
+BLACKLISTED_PUBLISHERS = {"unsorted", "unsorted comics", "unsorted files", "temporary", "sort"}
+
+def sanitize_cache(cache):
+    """Remove any entries with blacklisted publisher names (e.g. 'Unsorted')."""
+    bad_keys = [k for k, v in cache.items() if v.get('publisher', '').lower().strip() in BLACKLISTED_PUBLISHERS]
+    for k in bad_keys:
+        del cache[k]
+    if bad_keys:
+        print(f"[!] Purged {len(bad_keys)} cache entries with invalid publisher names.")
+    return cache
+
 def load_library_cache(dest_dir):
     cache_path = os.path.join(dest_dir, ".comic_sorter_cache.json")
     if os.path.exists(cache_path):
         try:
             with open(cache_path, 'r') as f:
-                return json.load(f)
+                cache = json.load(f)
+            return sanitize_cache(cache)
         except (OSError, ValueError) as e:
             print(f"[!] Warning: Failed to load library cache: {e}")
     return {}
@@ -199,8 +211,8 @@ class ComicSorterEngine:
                             os.remove(file_path)
                 return
 
-        if is_move_operation and os.path.abspath(target_file) == os.path.abspath(file_path):
-            safe_log("  [=] File already perfectly sorted.")
+        if os.path.abspath(target_file) == os.path.abspath(file_path):
+            safe_log(f"  [=] File already perfectly sorted at destination.")
             activity_log.append(f"[SKIPPED] Perfectly sorted  : {filename}")
             needs_move = False
             
@@ -277,6 +289,10 @@ class ComicSorterEngine:
         def safe_log(m):
             self._safe_log(m, cb_lock)
 
+        safe_log(f"Source Directory: {source_dir}")
+        safe_log(f"Target Library:   {dest_dir}")
+        safe_log(f"Operation Mode:   {mode} ({'Move' if is_move_operation else 'Copy/Merge'})\n")
+
         pre_processed = {}
         def _extract(file_path):
             try:
@@ -286,7 +302,12 @@ class ComicSorterEngine:
                 
                 if cache_key in library_cache:
                     c = library_cache[cache_key]
-                    return (file_path, True, c.get('publisher'), c.get('ip'), c.get('storyline'), c.get('issue'), c.get('volume'), None)
+                    cached_pub = (c.get('publisher') or '').lower().strip()
+                    if cached_pub in BLACKLISTED_PUBLISHERS:
+                        # Reject this cache entry — re-extract fresh metadata
+                        del library_cache[cache_key]
+                    else:
+                        return (file_path, True, c.get('publisher'), c.get('ip'), c.get('storyline'), c.get('issue'), c.get('volume'), None)
                 
                 publisher, ip, storyline, issue, volume = extract_metadata(file_path, api_key, custom_regexes)
                 return (file_path, False, publisher, ip, storyline, issue, volume, None)
@@ -353,7 +374,8 @@ class ComicSorterEngine:
         safe_log("\n--- Sorting Ended ---")
         if dry_run: safe_log("[SIMULATION ONLY] No files were permanently moved.")
         
-        if is_move_operation and not dry_run:
+        if not dry_run:
+            removed_dirs = 0
             try:
                 for root, dirs, files in os.walk(source_dir, topdown=False):
                     for d in dirs:
@@ -361,11 +383,24 @@ class ComicSorterEngine:
                         if not os.listdir(dir_path):
                             try:
                                 os.rmdir(dir_path)
+                                removed_dirs += 1
                             except Exception:
                                 pass
+                # Remove the source root itself if it is empty and is a subfolder
+                # of dest_dir (i.e. it was an "Unsorted" staging folder)
+                if os.path.exists(source_dir) and not os.listdir(source_dir):
+                    if os.path.abspath(source_dir).startswith(os.path.abspath(dest_dir) + os.sep):
+                        try:
+                            os.rmdir(source_dir)
+                            removed_dirs += 1
+                        except Exception:
+                            pass
             except Exception:
                 pass
-        elif not is_move_operation:
+            if removed_dirs:
+                safe_log(f"[CLEANUP] Removed {removed_dirs} empty folder(s) from source directory.")
+
+        if not is_move_operation:
             safe_log(f"Successfully evaluated {len(processed_originals)} out of {len(source_files)} files.")
             
         safe_log(f"Check your destination directory at: {dest_dir}")

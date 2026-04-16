@@ -257,6 +257,10 @@ def infer_metadata(publisher, ip, storyline, original_filename="", api_key=None)
             ip = cv_ip
 
     # Normalize publisher names robustly across ALL sources (including ComicVine)
+    BAD_PUBLISHERS = {"unsorted", "unsorted comics", "unsorted files", "comics", "library", "books", "comic", "sort", "manga", "temporary"}
+    if publisher and publisher.lower().strip() in BAD_PUBLISHERS:
+        publisher = "Unknown Publisher"
+
     if publisher != "Unknown Publisher":
         while True:
             stripped = re.sub(r'(?i)\s+(comics|comic|books|publishing|entertainment|productions|press|studios|incorporated|inc\.?|llc|group)$', '', publisher)

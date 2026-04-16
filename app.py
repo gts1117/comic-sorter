@@ -8,11 +8,11 @@ from tkinter import filedialog
 import customtkinter as ctk
 
 class CTkMessage(ctk.CTkToplevel):
-    def __init__(self, title, message, yes_no=False):
+    def __init__(self, title, message, mode="info"):
         super().__init__()
         self.title(title)
-        self.geometry("450x250")
-        self.result = False
+        self.geometry("450x280")
+        self.result = False # Default result (No/OK)
         
         self.lbl = ctk.CTkLabel(self, text=message, wraplength=400)
         self.lbl.pack(pady=(20, 10), padx=20, expand=True)
@@ -20,14 +20,22 @@ class CTkMessage(ctk.CTkToplevel):
         self.btn_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.btn_frame.pack(pady=20)
         
-        if yes_no:
+        if mode == "info":
+            self.ok_btn = ctk.CTkButton(self.btn_frame, text="OK", width=100, command=self.on_yes)
+            self.ok_btn.pack()
+        elif mode == "yes_no":
             self.yes_btn = ctk.CTkButton(self.btn_frame, text="Yes", width=100, command=self.on_yes)
             self.yes_btn.pack(side="left", padx=10)
             self.no_btn = ctk.CTkButton(self.btn_frame, text="No", width=100, command=self.on_no, fg_color="#C62828", hover_color="#B71C1C")
             self.no_btn.pack(side="left", padx=10)
-        else:
-            self.ok_btn = ctk.CTkButton(self.btn_frame, text="OK", width=100, command=self.on_yes)
-            self.ok_btn.pack()
+        elif mode == "error":
+            # Error mode has Yes, No, and Skip All
+            self.yes_btn = ctk.CTkButton(self.btn_frame, text="Yes", width=100, command=self.on_yes)
+            self.yes_btn.pack(side="left", padx=5)
+            self.no_btn = ctk.CTkButton(self.btn_frame, text="No", width=100, command=self.on_no, fg_color="#C62828", hover_color="#B71C1C")
+            self.no_btn.pack(side="left", padx=5)
+            self.skip_all_btn = ctk.CTkButton(self.btn_frame, text="Skip All Further", width=120, command=self.on_skip_all, fg_color="#555555", hover_color="#333333")
+            self.skip_all_btn.pack(side="left", padx=5)
             
         self.transient(self.master)
         self.grab_set()
@@ -40,12 +48,21 @@ class CTkMessage(ctk.CTkToplevel):
         self.result = False
         self.destroy()
 
+    def on_skip_all(self):
+        self.result = "SKIP_ALL"
+        self.destroy()
+
 def safe_showinfo(title, msg):
-    d = CTkMessage(title, msg, yes_no=False)
+    d = CTkMessage(title, msg, mode="info")
     d.wait_window()
 
 def safe_askyesno(title, msg):
-    d = CTkMessage(title, msg, yes_no=True)
+    d = CTkMessage(title, msg, mode="yes_no")
+    d.wait_window()
+    return d.result
+
+def safe_ask_error(title, msg):
+    d = CTkMessage(title, msg, mode="error")
     d.wait_window()
     return d.result
 
@@ -107,7 +124,11 @@ class App(ctk.CTk):
         
         self.dry_run_var = tk.BooleanVar(value=False)
         self.chk_dry = ctk.CTkCheckBox(self.options_frame, text="Simulate (Dry-Run)", variable=self.dry_run_var)
-        self.chk_dry.pack()
+        self.chk_dry.pack(side="left", padx=10)
+        
+        self.move_var = tk.BooleanVar(value=True)
+        self.chk_move = ctk.CTkCheckBox(self.options_frame, text="Move Files (instead of Copy)", variable=self.move_var)
+        self.chk_move.pack(side="left", padx=10)
 
         # Start and Cancel Buttons
         self.btn_frame = ctk.CTkFrame(self.controls_frame, fg_color="transparent")
@@ -130,6 +151,7 @@ class App(ctk.CTk):
         
         self.log_queue = queue.Queue()
         self.is_running = False
+        self.skip_all_errors = False
         self.engine = None
         self.last_dir = os.path.expanduser("~")
         
@@ -236,18 +258,33 @@ class App(ctk.CTk):
         self.log_box.configure(state="disabled")
         self.progress_bar.grid(row=3, column=0, padx=20, pady=(0, 20), sticky="ew")
         self.progress_bar.set(0)
+        
+        # Smart Folder Check
+        is_dest_unsorted = os.path.basename(dest_dir.rstrip(os.sep)).lower() == "unsorted"
+        if is_dest_unsorted and mode != 2:
+            parent = os.path.dirname(dest_dir.rstrip(os.sep))
+            msg = f"Your Target is currently set to the 'Unsorted' folder ({dest_dir}).\n\nUsually, you want to select the PARENT folder ({parent}) so that comics move OUT of Unsorted and into the correct publisher folders.\n\nShould I switch the Target to the parent folder instead?"
+            if self.thread_safe_ask(lambda: safe_askyesno("Smart Target Check", msg)):
+                dest_dir = parent
+                self._set_entry(self.dest_entry, dest_dir)
+
         self.write_log(f"\n[{'='*40}]")
         self.write_log(f"--- Starting Sort Operation (Mode {mode}) ---")
+        self.write_log(f"SOURCE: {source_dir}")
+        self.write_log(f"TARGET: {dest_dir}")
+        self.write_log(f"METHOD: {'MOVE' if (self.move_var.get() or mode == 2) else 'COPY'}")
         
         config = load_config()
         api_key = config.get('comicvine_api_key')
-        is_move_operation = (mode == 2)
+        is_move_operation = self.move_var.get() or (mode == 2)
+        
+        self.skip_all_errors = False
         
         callbacks = {
             'log': lambda msg: self.log_queue.put(msg),
             'on_missing_api_key': lambda: self.thread_safe_ask(self._ui_ask_api),
             'on_rate_limit': lambda: self.thread_safe_ask(lambda: safe_askyesno("Rate Limit", "ComicVine API rate limit exceeded.\n\nContinue strictly offline?")),
-            'on_failure': lambda error, context: self.thread_safe_ask(lambda: safe_askyesno("Error", f"A non-fatal error occurred:\n{context}\n\n{error}\n\nContinue skipping this file?")),
+            'on_failure': self.handle_on_failure,
             'on_trash_prompt': lambda n: True if n == -1 else self.thread_safe_ask(lambda: safe_askyesno("Cleanup", f"Do you want to move the {n} original unsorted files to the Trash?")),
             'on_progress': lambda c, t: self.after(0, lambda: self.progress_bar.set(c / t if t > 0 else 0)),
             'on_finish': self.on_finish
@@ -268,6 +305,18 @@ class App(ctk.CTk):
             
         threading.Thread(target=run_thread, daemon=True).start()
         
+    def handle_on_failure(self, error, context):
+        if self.skip_all_errors:
+            return True
+            
+        result = self.thread_safe_ask(lambda: safe_ask_error("Error", f"A non-fatal error occurred:\n{context}\n\n{error}\n\nContinue skipping this file?"))
+        
+        if result == "SKIP_ALL":
+            self.skip_all_errors = True
+            return True
+            
+        return result
+
     def on_finish(self):
         def _finish_ui():
             self.is_running = False

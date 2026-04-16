@@ -18,15 +18,16 @@ def scan_library(library_dir):
                 # We expect paths like Publisher/IP/Storyline/filename
                 # Or at minimum Publisher/IP/filename
                 if len(parts) >= 3:
-                    # Strip 'Adult/' root if present to find true publisher
-                    if parts[0].lower() == 'adult' and len(parts) >= 4:
+                    # Strip 'Adult/' or 'Unsorted/' root if present to find true publisher
+                    if parts[0].lower() in ['adult', 'unsorted'] and len(parts) >= 4:
                         publisher = parts[1]
                         ip = parts[2]
                     else:
                         publisher = parts[0]
                         ip = parts[1]
                     
-                    if publisher.lower() not in ["unknown publisher", "adult", "unknown", "comics", "library", "books", "comic", "sort", "manga"]:
+                    BAD_NAMES = ["unknown publisher", "adult", "unsorted", "unsorted comics", "unsorted files", "unknown", "comics", "library", "books", "comic", "sort", "manga"]
+                    if publisher.strip().lower() not in BAD_NAMES:
                         ip_lower = ip.lower()
                         if ip_lower not in learned_mappings:
                             learned_mappings[ip_lower] = publisher

@@ -1,4 +1,6 @@
 import os
+os.environ["TK_SILENCE_DEPRECATION"] = "1"
+
 import queue
 import threading
 import tkinter as tk

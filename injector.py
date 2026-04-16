@@ -6,10 +6,6 @@ import xml.etree.ElementTree as ET
 import subprocess
 from xml.dom import minidom
 
-try:
-    import rarfile
-except ImportError:
-    rarfile = None
 
 def render_xml(root):
     rough_string = ET.tostring(root, 'utf-8')
@@ -85,7 +81,7 @@ def convert_cbr_to_cbz_and_inject(target_file, publisher, ip, storyline, issue="
     
     try:
         with tempfile.TemporaryDirectory() as extract_dir:
-            dest_path = os.path.join(extract_dir, "")  
+
             unar_paths = ['unar', '/opt/homebrew/bin/unar', '/usr/local/bin/unar']
             unar_bin = next((p for p in unar_paths if shutil.which(p) or os.path.exists(p)), None)
             if not unar_bin:
@@ -94,7 +90,10 @@ def convert_cbr_to_cbz_and_inject(target_file, publisher, ip, storyline, issue="
             try:
                 res = subprocess.run([unar_bin, '-f', '-D', '-o', extract_dir, target_file], capture_output=True, text=True)
                 if res.returncode != 0:
-                    raise RuntimeError(f"Native unar failed with code {res.returncode}")
+                    out = res.stdout.strip().split('\n')[-5:] if res.stdout else []
+                    err = res.stderr.strip().split('\n')[-5:] if res.stderr else []
+                    msg = "\n".join(out + err)
+                    raise RuntimeError(f"Native unar failed with code {res.returncode}.\n{msg}")
             except FileNotFoundError:
                 raise RuntimeError("Missing the 'unar' binary. Run: brew install unar")
                 
@@ -141,8 +140,8 @@ def inject_metadata_into_archive(target_file, publisher, ip, storyline, issue=""
         try:
             return inject_cbz(target_file, publisher, ip, storyline, issue, volume)
         except RuntimeError as e:
-            if "File is not a zip file" in str(e) or "BadZipFile" in str(e):
-                print(f"  [cbr] Misnamed archive detected. Salvaging as proprietary file...")
+            if "File is not a zip file" in str(e) or "BadZipFile" in str(e) or "Bad CRC-32" in str(e):
+                print(f"  [cbr] Misnamed or corrupt archive detected. Salvaging as proprietary file...")
                 return convert_cbr_to_cbz_and_inject(target_file, publisher, ip, storyline, issue, volume)
             raise
     elif target_file.lower().endswith('.cbr'):

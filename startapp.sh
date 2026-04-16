@@ -7,7 +7,14 @@ cd "$DIR"
 # Automatically create or activate virtual environment
 if [ ! -d "venv" ]; then
     echo "Setting up virtual environment for the first time..."
-    python3 -m venv venv
+    if command -v /opt/homebrew/bin/python3.11 &> /dev/null; then
+        PY_BIN="/opt/homebrew/bin/python3.11"
+    elif command -v /opt/homebrew/bin/python3.10 &> /dev/null; then
+        PY_BIN="/opt/homebrew/bin/python3.10"
+    else
+        PY_BIN="python3"
+    fi
+    $PY_BIN -m venv venv
     source venv/bin/activate
     if [ -f "requirements.txt" ]; then
         pip install -r requirements.txt

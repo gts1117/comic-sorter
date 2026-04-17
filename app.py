@@ -52,6 +52,70 @@ class CTkMessage(ctk.CTkToplevel):
         self.result = "SKIP_ALL"
         self.destroy()
 
+
+class CTkSummary(ctk.CTkToplevel):
+    """End-of-run summary dialog showing counts and a link to the log file."""
+    def __init__(self, summary: dict):
+        super().__init__()
+        self.title("Sort Complete")
+        self.geometry("480x360")
+        self.resizable(False, False)
+
+        aborted = summary.get('aborted', False)
+        header_text = "Run Cancelled" if aborted else "Sort Complete"
+        header_color = "#C62828" if aborted else "#1B5E20"
+
+        header = ctk.CTkLabel(self, text=header_text,
+                              font=ctk.CTkFont(size=20, weight="bold"),
+                              text_color=header_color)
+        header.pack(pady=(20, 10))
+
+        # Stats grid
+        stats_frame = ctk.CTkFrame(self)
+        stats_frame.pack(padx=30, pady=5, fill="x")
+
+        rows = [
+            ("Files scanned",     summary.get('total', 0),      None),
+            ("Successfully sorted", summary.get('success', 0),  "#43A047"),
+            ("Already in place",  summary.get('skipped', 0),    None),
+            ("Duplicates removed", summary.get('duplicates', 0), None),
+            ("Errors",            summary.get('errors', 0),      "#C62828" if summary.get('errors', 0) else None),
+            ("Ambiguous (check log)", summary.get('ambiguous', 0), "#F57F17" if summary.get('ambiguous', 0) else None),
+        ]
+        for i, (label, value, color) in enumerate(rows):
+            ctk.CTkLabel(stats_frame, text=label + ":",
+                         anchor="w",
+                         font=ctk.CTkFont(size=13)).grid(row=i, column=0, padx=15, pady=4, sticky="w")
+            kw = {"text_color": color} if color else {}
+            ctk.CTkLabel(stats_frame, text=str(value),
+                         font=ctk.CTkFont(size=13, weight="bold"),
+                         **kw).grid(row=i, column=1, padx=15, pady=4, sticky="e")
+        stats_frame.grid_columnconfigure(1, weight=1)
+
+        # Report path
+        report_path = summary.get('report_path')
+        if report_path:
+            rp_frame = ctk.CTkFrame(self, fg_color="transparent")
+            rp_frame.pack(padx=30, pady=(8, 0), fill="x")
+            ctk.CTkLabel(rp_frame, text="Log saved to:",
+                         font=ctk.CTkFont(size=11),
+                         text_color="gray").pack(anchor="w")
+            rp_lbl = ctk.CTkLabel(rp_frame,
+                                  text=report_path,
+                                  font=ctk.CTkFont(size=11),
+                                  text_color="#64B5F6",
+                                  cursor="hand2",
+                                  wraplength=420,
+                                  justify="left")
+            rp_lbl.pack(anchor="w")
+            rp_lbl.bind("<Button-1>", lambda e: os.system(f'open -R "{report_path}"'))
+
+        btn = ctk.CTkButton(self, text="Close", width=120, command=self.destroy)
+        btn.pack(pady=20)
+
+        self.transient(self.master)
+        self.grab_set()
+
 def safe_showinfo(title, msg):
     d = CTkMessage(title, msg, mode="info")
     d.wait_window()
@@ -317,17 +381,20 @@ class App(ctk.CTk):
             
         return result
 
-    def on_finish(self):
+    def on_finish(self, summary=None):
         def _finish_ui():
             self.is_running = False
             self.start_btn.configure(state="normal")
             self.cancel_btn.configure(state="disabled")
-            msg = "Sorting process completed or cancelled!" if (self.engine and self.engine.aborted) else "Sorting process completed successfully!"
-            safe_showinfo("Done", msg)
             self.write_log(f"[{'='*40}]\n")
             self.progress_bar.grid_remove()
             self.log_box.grid_remove()
             self.engine = None
+            if summary:
+                d = CTkSummary(summary)
+                d.wait_window()
+            else:
+                safe_showinfo("Done", "Sorting process complete.")
         self.after(0, _finish_ui)
 
 if __name__ == "__main__":

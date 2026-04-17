@@ -421,24 +421,43 @@ class ComicSorterEngine:
         if mode in [2, 3]:
             activity_log = [line for line in activity_log if "[SKIPPED]" not in line]
             
+        report_path = None
         if activity_log or ambiguous_files:
             report_path = os.path.join(dest_dir, log_filename)
             try:
+                # Compute counts for file summary
+                _successes  = sum(1 for l in activity_log if l.startswith("[SUCCESS]"))
+                _errors     = sum(1 for l in activity_log if l.startswith("[ERROR]") or l.startswith("[FATAL_ERROR]"))
+                _skipped    = sum(1 for l in activity_log if l.startswith("[SKIPPED]"))
+                _duplicates = sum(1 for l in activity_log if l.startswith("[DUPLICATE]"))
+
                 with open(report_path, 'w') as f:
                     f.write("=== Comic Sorter Execution Log ===\n")
                     if dry_run:
                         f.write("[!] DRY RUN MODE - SIMULATED RESULTS [!]\n")
                     if self.aborted:
                         f.write("\n[!] WARNING: Run was manually aborted. Log is incomplete!\n")
-                    
+
+                    f.write("\n--- Run Summary ---\n")
+                    f.write(f"Total files scanned   : {len(source_files)}\n")
+                    f.write(f"Successfully sorted   : {_successes}\n")
+                    f.write(f"Skipped (in place)    : {_skipped}\n")
+                    f.write(f"Duplicates removed    : {_duplicates}\n")
+                    f.write(f"Errors                : {_errors}\n")
+                    if ambiguous_files:
+                        f.write(f"Ambiguous (check list): {len(ambiguous_files)}\n")
+                    if self.aborted:
+                        f.write("Run was manually cancelled.\n")
+
                     f.write("\n--- Files Processed ---\n")
                     for line in activity_log:
                         f.write(line + "\n")
-                        
+
                     if ambiguous_files:
                         f.write("\n--- Ambiguous Identifications (Manual check suggested) ---\n")
                         for line in ambiguous_files:
                             f.write(line + "\n")
+
                 safe_log(f"\n[REPORT] An execution log has been saved natively to: {report_path}")
             except Exception:
                 pass
@@ -463,5 +482,22 @@ class ComicSorterEngine:
                 else:
                     safe_log("Original files kept.")
                     
+        # Build summary and pass to on_finish
+        successes  = sum(1 for l in activity_log if l.startswith("[SUCCESS]"))
+        errors     = sum(1 for l in activity_log if l.startswith("[ERROR]") or l.startswith("[FATAL_ERROR]"))
+        skipped    = sum(1 for l in activity_log if l.startswith("[SKIPPED]"))
+        duplicates = sum(1 for l in activity_log if l.startswith("[DUPLICATE]"))
+
+        summary = {
+            'total':      len(source_files),
+            'success':    successes,
+            'skipped':    skipped,
+            'duplicates': duplicates,
+            'errors':     errors,
+            'ambiguous':  len(ambiguous_files),
+            'aborted':    self.aborted,
+            'report_path': report_path if (activity_log or ambiguous_files) else None,
+        }
+
         if 'on_finish' in self.callbacks:
-            self.callbacks['on_finish']()
+            self.callbacks['on_finish'](summary)

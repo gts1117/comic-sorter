@@ -109,6 +109,46 @@ DEFAULT_RULES = {
       "ip": "Plastic",
       "storyline": ""
     }
+  ],
+  "PUBLISHER_ALIASES": {
+    "_comment": "Maps variant/garbled/duplicate publisher names to a single canonical name. Checked before suffix stripping.",
+    "alien books": "Alien Books",
+    "alien": "Alien Books",
+    "boom": "BOOM!",
+    "boom! studios": "BOOM!",
+    "boom studios": "BOOM!",
+    "self published": "Self-Published",
+    "marvel entertainment": "Marvel",
+    "europe": "Europe Comics",
+    "yen": "Yen Press",
+    "dstrly": "Dstlry",
+    "nbm": "NBM",
+    "nbm publishing": "NBM",
+    "panini espa\u00f1a": "Panini",
+    "panini verlag": "Panini",
+    "panini france": "Panini",
+    "marvel ukpanini uk": "Panini UK",
+    "aammarskosia": "Markosia",
+    "aammarkosia": "Markosia",
+    "aam/markosia": "Markosia",
+    "aam markosia": "Markosia"
+  },
+  "MANGA_PUBLISHERS": [
+    "viz", "viz media",
+    "seven seas", "seven seas entertainment",
+    "yen press",
+    "kodansha", "kodansha comics usa", "kodansha comics",
+    "shogakukan",
+    "shueisha",
+    "tokyopop",
+    "hakusensha",
+    "enterbrain",
+    "kadokawa", "kadokawa shoten",
+    "square enix",
+    "vertical",
+    "j-novel club",
+    "one peace books",
+    "juniorspress bv", "juniorpress bv"
   ]
 }
 
@@ -117,15 +157,29 @@ def load_rules():
         try:
             with open(RULES_FILE, 'w') as f:
                 json.dump(DEFAULT_RULES, f, indent=4)
-        except Exception as e:
-            # Failing to write default rules is okay, just use defaults
+        except Exception:
             pass
         return DEFAULT_RULES
 
     try:
         with open(RULES_FILE, 'r') as f:
-            return json.load(f)
-    except Exception as e:
+            loaded = json.load(f)
+        # Merge: for any key in DEFAULT_RULES that is missing from the file,
+        # fill in the default value. This ensures new rule sections are
+        # available automatically without requiring the user to edit their file.
+        changed = False
+        for key, default_val in DEFAULT_RULES.items():
+            if key not in loaded:
+                loaded[key] = default_val
+                changed = True
+        if changed:
+            try:
+                with open(RULES_FILE, 'w') as f:
+                    json.dump(loaded, f, indent=4)
+            except Exception:
+                pass
+        return loaded
+    except Exception:
         return DEFAULT_RULES
 
 rules_db = load_rules()
@@ -135,6 +189,33 @@ _LOCKED_CORE_IPS = set(CORE_IPS.keys())
 ALIAS_IPS = rules_db.get("ALIAS_IPS", {})
 EVENT_MAPPINGS = rules_db.get("EVENT_MAPPINGS", {})
 FILENAME_OVERRIDES = rules_db.get("FILENAME_OVERRIDES", [])
+# lowercase variant → canonical publisher name (checked before suffix stripping)
+PUBLISHER_ALIASES = {k.lower(): v for k, v in rules_db.get("PUBLISHER_ALIASES", {}).items()
+                     if not k.startswith('_')}
+# lowercase publisher names that should be routed under Manga/
+MANGA_PUBLISHERS = set(p.lower() for p in rules_db.get("MANGA_PUBLISHERS", []))
+# Populated at runtime by scanner when it sees Manga/<Publisher>/ folders
+PUBLISHER_CATEGORIES: dict = {}
+
+
+def update_publisher_categories(cats: dict):
+    """Called by scanner with {publisher_lower: 'Manga'|'Adult'} learned from library structure."""
+    global PUBLISHER_CATEGORIES
+    PUBLISHER_CATEGORIES.update(cats)
+
+
+def get_content_category(publisher: str) -> str:
+    """Return 'Manga', 'Adult', or '' for a resolved publisher name."""
+    pub_lower = publisher.lower().strip()
+    # Explicit library-learned category takes priority
+    cat = PUBLISHER_CATEGORIES.get(pub_lower, "")
+    if cat:
+        return cat
+    # Fall back to the hardcoded manga publisher list
+    if pub_lower in MANGA_PUBLISHERS:
+        return "Manga"
+    return ""
+
 
 def update_learned_ips(mappings):
     """Register contextual folders learned by scanning an existing library.
@@ -315,17 +396,26 @@ def infer_metadata(publisher, ip, storyline, original_filename="", api_key=None)
         publisher = "Unknown Publisher"
 
     if publisher != "Unknown Publisher":
-        while True:
-            stripped = re.sub(r'(?i)\s+(comics|comic|books|publishing|entertainment|productions|press|studios|incorporated|inc\.?|llc|group)$', '', publisher)
-            if stripped == publisher:
-                break
-            publisher = stripped
-            
-        acronyms = {"dc": "DC", "idw": "IDW", "marvel": "Marvel", "image": "Image", "dark horse": "Dark Horse", "boom!": "BOOM!"}
-        normalized_pub = acronyms.get(publisher.lower())
-        if normalized_pub:
-            publisher = normalized_pub
-        elif publisher.islower() or publisher.isupper():
-            publisher = publisher.title()
+        # Check PUBLISHER_ALIASES before suffix stripping to protect names like 'Alien Books'
+        alias = PUBLISHER_ALIASES.get(publisher.lower().strip())
+        if alias:
+            publisher = alias
+        else:
+            while True:
+                stripped = re.sub(r'(?i)\s+(comics|comic|books|publishing|entertainment|productions|press|studios|incorporated|inc\.?|llc|group)$', '', publisher)
+                if stripped == publisher:
+                    break
+                publisher = stripped
+            # Check aliases again after stripping (e.g. 'Alien' after stripping 'Books')
+            alias = PUBLISHER_ALIASES.get(publisher.lower().strip())
+            if alias:
+                publisher = alias
+            else:
+                acronyms = {"dc": "DC", "idw": "IDW", "marvel": "Marvel", "image": "Image", "dark horse": "Dark Horse", "boom!": "BOOM!"}
+                normalized_pub = acronyms.get(publisher.lower())
+                if normalized_pub:
+                    publisher = normalized_pub
+                elif publisher.islower() or publisher.isupper():
+                    publisher = publisher.title()
 
     return publisher, ip, storyline

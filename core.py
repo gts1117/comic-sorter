@@ -66,16 +66,20 @@ def _normalize_publisher(pub):
 
 
 def sanitize_cache(cache):
-    """Remove blacklisted entries and normalize publisher names."""
+    """Remove blacklisted entries, normalize publisher names, and apply publisher aliases."""
     bad_keys = [k for k, v in cache.items()
                 if v.get('publisher', '').lower().strip() in BLACKLISTED_PUBLISHERS]
     for k in bad_keys:
         del cache[k]
-    # Normalize publisher names to match what inference.py would produce
+    # Normalize and alias publisher names to match what inference.py would produce
+    from inference import PUBLISHER_ALIASES as _PUB_ALIASES
     for v in cache.values():
         raw = v.get('publisher', '')
         if raw and raw != 'Unknown Publisher':
-            v['publisher'] = _normalize_publisher(raw)
+            normalized = _normalize_publisher(raw)
+            # Apply alias if one exists for the normalized name
+            aliased = _PUB_ALIASES.get(normalized.lower().strip(), normalized)
+            v['publisher'] = aliased
     if bad_keys:
         print(f"[!] Purged {len(bad_keys)} cache entries with invalid publisher names.")
     return cache
@@ -219,8 +223,16 @@ class ComicSorterEngine:
         if publisher == "Unknown Publisher" or storyline == "Unknown Storyline":
             ambiguous_files.append(f"[{publisher}] / [{ip}] / [{storyline}] -> {filename}")
 
+        # Determine if this comic belongs in a genre-category root (Manga/ or Adult/)
+        # "ADULT" keyword in filename is a hard override; otherwise use the publisher category system
+        import inference as _inf
         if "ADULT" in filename.upper():
-            target_dir = os.path.join(dest_dir, "Adult", publisher, ip, storyline)
+            content_category = "Adult"
+        else:
+            content_category = _inf.get_content_category(publisher)
+
+        if content_category:
+            target_dir = os.path.join(dest_dir, content_category, publisher, ip, storyline)
         else:
             target_dir = os.path.join(dest_dir, publisher, ip, storyline)
             

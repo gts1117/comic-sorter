@@ -1,0 +1,148 @@
+# Comic Vault — Future Project Plan
+# Written: April 2026
+# Reference codebase: comic-sorter (this repo)
+
+---
+
+## What It Is
+
+Comic Vault is the next evolution of Comic Sorter — a full desktop comic book
+library manager inspired by Calibre. Instead of just sorting files, it would
+let you read, browse, manage, and edit your entire collection from one place.
+
+---
+
+## Core Features
+
+- Library browser with cover grid and list views
+- Built-in comic reader (CBZ/CBR page-by-page, keyboard nav, zoom)
+- Metadata editor — right-click any comic to change publisher, series,
+  storyline, issue number, and have the app automatically rename/move
+  the file and update the archive's ComicInfo.xml in the background
+- Import/sort panel (the current Comic Sorter engine, embedded as a tab)
+- Library database (SQLite) so search, filter, and sort are instant
+- Search and filter by publisher, series, year, read/unread status
+- ComicVine lookup from inside the editor (auto-fill metadata)
+- Reading progress tracking (last page read, read/unread flag)
+- Series grouping — view all issues of a run together
+
+---
+
+## Architecture
+
+### What to reuse from Comic Sorter
+
+All of the processing engine carries over unchanged:
+  - core.py          — sorting and file movement engine
+  - inference.py     — metadata inference and ComicVine API
+  - metadata.py      — filename parsing and archive extraction
+  - injector.py      — ComicInfo.xml write-back into CBZ
+  - scanner.py       — library structure learning
+  - app_paths.py     — platform-aware config path resolver
+  - rules.json       — user-defined overrides and IP mappings
+
+### New layers needed
+
+  Library DB (SQLite)
+      Stores: file path, publisher, series, storyline, issue, volume,
+              cover image path, read status, last read page, file size,
+              date added, ComicVine ID
+      Updated whenever a file is moved or metadata is edited
+
+  Backend service (Python)
+      Wraps existing engine modules
+      Exposes an IPC API to the frontend:
+        - scan_library(path)
+        - get_comics(filters)
+        - get_page(comic_id, page_number) -> image bytes
+        - update_metadata(comic_id, fields) -> moves file, updates XML + DB
+        - import_unsorted(source, dest)
+
+  Frontend (React)
+      Library view   — cover grid, sidebar filters, search bar
+      Reader view    — full-screen page display, left/right nav
+      Detail panel   — metadata fields, edit in place, ComicVine lookup
+      Import panel   — the Comic Sorter UI as a tab
+
+### Recommended shell
+
+  Tauri (Rust + WebView)
+      - Much smaller than Electron (~5 MB overhead vs ~150 MB)
+      - Native macOS .app packaging built in
+      - Calls the Python backend via sidecar process over stdio/IPC
+      - Alternatively: ship Python as a local HTTP server (FastAPI)
+        and have Tauri's WebView call localhost endpoints
+
+---
+
+## Data Flow — Metadata Edit
+
+  User right-clicks a comic in the grid
+    -> Edit panel opens with current fields pre-filled
+    -> User changes Publisher from "AAMMarkosia" to "Image"
+    -> Clicks Save
+    -> Backend calls infer_metadata() with overrides
+    -> injector.inject_metadata_into_archive() updates ComicInfo.xml
+    -> shutil.move() relocates file to Library/Image/Series/...
+    -> SQLite record updated with new path and publisher
+    -> Cover grid refreshes in place (no full reload)
+
+---
+
+## Suggested Tech Stack
+
+  Layer             Technology
+  ─────────────────────────────────────────────
+  Shell / packaging  Tauri 2
+  Frontend           React + TypeScript
+  Styling            CSS Modules or vanilla CSS
+  State management   Zustand or React Context
+  Backend / IPC      Python (FastAPI or stdio sidecar)
+  Database           SQLite via Python sqlite3
+  Processing engine  Existing comic-sorter modules
+  Comic reader       HTML Canvas or <img> tags (CBZ = zip of images)
+  ComicVine          Existing inference.py integration
+
+---
+
+## Suggested Project Structure
+
+  comic-vault/
+    src-tauri/         Tauri shell (Rust, packaging, IPC bridge)
+    src/               React frontend
+      components/
+        LibraryGrid/
+        Reader/
+        MetadataEditor/
+        ImportPanel/   (wraps Comic Sorter UI)
+      store/
+      api/             TypeScript wrappers for backend calls
+    backend/           Python service
+      main.py          FastAPI entry point
+      engine/          Symlink or copy of comic-sorter modules
+      db.py            SQLite schema and queries
+    public/
+    comic-vault.sqlite Auto-created in ~/Library/Application Support/Comic Vault/
+
+---
+
+## Open Questions to Decide Before Starting
+
+1. Tauri sidecar vs. FastAPI local server
+   Sidecar is cleaner but requires bundling Python. FastAPI over localhost
+   is simpler to develop but adds a server dependency.
+
+2. Cover image storage
+   Extract page 1 of each CBZ at import time and cache as a JPEG thumbnail,
+   or read on demand. Thumbnails are faster for grid rendering.
+
+3. Reading progress sync
+   Local SQLite only, or optional sync via iCloud / a small cloud backend?
+
+4. Windows / Linux support
+   Tauri supports all platforms. The Python engine already runs cross-platform.
+   The main work would be packaging and testing.
+
+5. Comic Sorter relationship
+   Keep Comic Sorter as a standalone repo and import it as a git submodule,
+   or fold the code directly into Comic Vault's backend/engine/ directory.

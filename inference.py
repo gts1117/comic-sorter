@@ -76,7 +76,40 @@ DEFAULT_RULES = {
   },
   "EVENT_MAPPINGS": {
     "one world under doom": {"publisher": "Marvel", "ip": "Doctor Doom", "storyline": "One World Under Doom"}
-  }
+  },
+  "FILENAME_OVERRIDES": [
+    {
+      "_comment": "Match any filename containing this substring (case-insensitive)",
+      "match": "Plastic 001 (2017) (Digital) (Zone-Empire)",
+      "publisher": "Image",
+      "ip": "Plastic",
+      "storyline": ""
+    },
+    {
+      "match": "Plastic 002 (2017) (Digital) (Zone-Empire)",
+      "publisher": "Image",
+      "ip": "Plastic",
+      "storyline": ""
+    },
+    {
+      "match": "Plastic 003 (2017) (Digital) (Zone-Empire)",
+      "publisher": "Image",
+      "ip": "Plastic",
+      "storyline": ""
+    },
+    {
+      "match": "Plastic 004 (2017) (Digital) (Zone-Empire)",
+      "publisher": "Image",
+      "ip": "Plastic",
+      "storyline": ""
+    },
+    {
+      "match": "Plastic 005 (2017) (Digital) (Zone-Empire)",
+      "publisher": "Image",
+      "ip": "Plastic",
+      "storyline": ""
+    }
+  ]
 }
 
 def load_rules():
@@ -97,13 +130,20 @@ def load_rules():
 
 rules_db = load_rules()
 CORE_IPS = rules_db.get("CORE_IPS", {})
+# Keep a frozen copy of user-defined rules so scanner-learned mappings can never overwrite them
+_LOCKED_CORE_IPS = set(CORE_IPS.keys())
 ALIAS_IPS = rules_db.get("ALIAS_IPS", {})
 EVENT_MAPPINGS = rules_db.get("EVENT_MAPPINGS", {})
+FILENAME_OVERRIDES = rules_db.get("FILENAME_OVERRIDES", [])
 
 def update_learned_ips(mappings):
-    """Dynamically registers contextual folders learned by scanning an existing library"""
+    """Register contextual folders learned by scanning an existing library.
+    Never overwrites keys that were explicitly defined by the user in rules.json.
+    """
     global CORE_IPS
-    CORE_IPS.update(mappings)
+    for key, value in mappings.items():
+        if key not in _LOCKED_CORE_IPS:  # user rules are immutable
+            CORE_IPS.setdefault(key, value)
 
 CACHE_FILE = app_paths.user_data("comicvine_cache.json")
 _CV_CACHE = None
@@ -183,6 +223,18 @@ def query_comicvine(query, api_key):
 
 
 def infer_metadata(publisher, ip, storyline, original_filename="", api_key=None):
+    # -1. Filename override check — highest priority, checked before anything else.
+    # Add entries to the FILENAME_OVERRIDES list in rules.json to pin specific
+    # ambiguously-named files to the correct publisher/IP/storyline.
+    filename_lower = original_filename.lower()
+    for override in FILENAME_OVERRIDES:
+        match_str = override.get("match", "")
+        if match_str and match_str.lower() in filename_lower:
+            pub_o  = override.get("publisher") or publisher
+            ip_o   = override.get("ip") or ip
+            sl_o   = override.get("storyline") or storyline
+            return pub_o, ip_o, sl_o
+
     # 0. Handle manually joined IPs (e.g., "Resurrection Man/ Quantum Karma", "Supergirl: Rebirth")
     if storyline == "Unknown Storyline":
         split_match = re.split(r'\s*(?:/|:| - )\s*', ip, maxsplit=1)

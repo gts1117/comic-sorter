@@ -38,11 +38,44 @@ def save_config(conf):
 
 BLACKLISTED_PUBLISHERS = {"unsorted", "unsorted comics", "unsorted files", "temporary", "sort"}
 
+# Suffix pattern and acronym map — must match the same logic in inference.py
+_PUB_SUFFIX_PAT = re.compile(
+    r'\s+(comics|comic|books|publishing|entertainment|productions|press|studios|incorporated|inc\.?|llc|group)$',
+    re.IGNORECASE
+)
+_PUB_ACRONYMS = {
+    "dc": "DC", "idw": "IDW", "marvel": "Marvel",
+    "image": "Image", "dark horse": "Dark Horse", "boom!": "BOOM!"
+}
+
+def _normalize_publisher(pub):
+    """Strip common suffixes and apply acronym normalisation, matching inference.py."""
+    if not pub or pub == "Unknown Publisher":
+        return pub
+    while True:
+        stripped = _PUB_SUFFIX_PAT.sub('', pub)
+        if stripped == pub:
+            break
+        pub = stripped
+    normed = _PUB_ACRONYMS.get(pub.lower())
+    if normed:
+        return normed
+    if pub.islower() or pub.isupper():
+        return pub.title()
+    return pub
+
+
 def sanitize_cache(cache):
-    """Remove any entries with blacklisted publisher names (e.g. 'Unsorted')."""
-    bad_keys = [k for k, v in cache.items() if v.get('publisher', '').lower().strip() in BLACKLISTED_PUBLISHERS]
+    """Remove blacklisted entries and normalize publisher names."""
+    bad_keys = [k for k, v in cache.items()
+                if v.get('publisher', '').lower().strip() in BLACKLISTED_PUBLISHERS]
     for k in bad_keys:
         del cache[k]
+    # Normalize publisher names to match what inference.py would produce
+    for v in cache.values():
+        raw = v.get('publisher', '')
+        if raw and raw != 'Unknown Publisher':
+            v['publisher'] = _normalize_publisher(raw)
     if bad_keys:
         print(f"[!] Purged {len(bad_keys)} cache entries with invalid publisher names.")
     return cache
@@ -377,27 +410,35 @@ class ComicSorterEngine:
         safe_log("\n--- Sorting Ended ---")
         if dry_run: safe_log("[SIMULATION ONLY] No files were permanently moved.")
         
+        def _is_empty_dir(path):
+            """True if a directory is effectively empty (ignores .DS_Store and hidden files)."""
+            try:
+                return all(f.startswith('.') for f in os.listdir(path))
+            except OSError:
+                return False
+
+        def _remove_hidden_and_dir(path):
+            """Remove a directory that contains only hidden/system files (e.g. .DS_Store)."""
+            try:
+                shutil.rmtree(path)
+                return True
+            except OSError:
+                return False
+
         if not dry_run:
             removed_dirs = 0
             try:
                 for root, dirs, files in os.walk(source_dir, topdown=False):
                     for d in dirs:
                         dir_path = os.path.join(root, d)
-                        if not os.listdir(dir_path):
-                            try:
-                                os.rmdir(dir_path)
+                        if _is_empty_dir(dir_path):
+                            if _remove_hidden_and_dir(dir_path):
                                 removed_dirs += 1
-                            except Exception:
-                                pass
-                # Remove the source root itself if it is empty and is a subfolder
-                # of dest_dir (i.e. it was an "Unsorted" staging folder)
-                if os.path.exists(source_dir) and not os.listdir(source_dir):
+                # Remove source root itself if empty and is a staging subfolder
+                if _is_empty_dir(source_dir):
                     if os.path.abspath(source_dir).startswith(os.path.abspath(dest_dir) + os.sep):
-                        try:
-                            os.rmdir(source_dir)
+                        if _remove_hidden_and_dir(source_dir):
                             removed_dirs += 1
-                        except Exception:
-                            pass
             except Exception:
                 pass
             if removed_dirs:

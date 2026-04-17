@@ -26,6 +26,25 @@ let you read, browse, manage, and edit your entire collection from one place.
 - Reading progress tracking (last page read, read/unread flag)
 - Series grouping — view all issues of a run together
 
+## Misc Ideas
+- categories, favorites, tags, etc. layout looks like a bunch of comics in
+  a comic holder, called xmen or dc and you can pull them out thats the gui.
+- maybe a full gui version for reading on the computer. mac/pc/linux but also
+  maybe keep the headless sorter as a running thing so you can add files to
+  a sort folder and it will auto detect theres a new file and info convert sort
+  it automatically
+- a thing that auto looks up and reminds you when upcoming issues are released
+- if you have a bunch of individual issues of a series and then add a library
+  version or collection album it will ask if you want to keep the individual
+  issues 1-13 or not since the collected volume is issues 1-13 all together
+- a way to add comics to the library that are not in a folder (like if you
+  drag and drop a comic into the library window)
+- keep track of read status
+- keep track of last page read
+- 
+
+
+
 ---
 
 ## Architecture

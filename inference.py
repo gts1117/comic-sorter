@@ -5,8 +5,9 @@ import urllib.error
 import json
 import time
 import os
+import app_paths
 
-RULES_FILE = "rules.json"
+RULES_FILE = app_paths.user_data("rules.json")
 
 DEFAULT_RULES = {
   "CORE_IPS": {
@@ -104,7 +105,7 @@ def update_learned_ips(mappings):
     global CORE_IPS
     CORE_IPS.update(mappings)
 
-CACHE_FILE = "comicvine_cache.json"
+CACHE_FILE = app_paths.user_data("comicvine_cache.json")
 _CV_CACHE = None
 _LAST_CV_REQ_TIME = 0
 

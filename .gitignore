@@ -32,3 +32,11 @@ Thumbs.db
 # IDEs
 .vscode/
 .idea/
+
+# Build artefacts — do not commit binaries or DMGs
+dist/
+build/
+*.dmg
+*.app/
+"Comic Sorter.app"/
+sorter\ crash.txt

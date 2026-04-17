@@ -7,6 +7,7 @@ import threading
 from metadata import extract_metadata
 from injector import inject_metadata_into_archive
 import scanner
+import app_paths
 
 HAS_SEND2TRASH = False
 try:
@@ -15,12 +16,14 @@ try:
 except ImportError:
     pass
 
-CONFIG_FILE = "config.json"
+def _config_path():
+    return app_paths.user_data("config.json")
 
 def load_config():
-    if os.path.exists(CONFIG_FILE):
+    path = _config_path()
+    if os.path.exists(path):
         try:
-            with open(CONFIG_FILE, 'r') as f:
+            with open(path, 'r') as f:
                 return json.load(f)
         except (OSError, ValueError) as e:
             print(f"[!] Warning: Failed to load config: {e}")
@@ -28,7 +31,7 @@ def load_config():
 
 def save_config(conf):
     try:
-        with open(CONFIG_FILE, 'w') as f:
+        with open(_config_path(), 'w') as f:
             json.dump(conf, f, indent=4)
     except (OSError, ValueError) as e:
         print(f"[!] Warning: Failed to save config: {e}")
